@@ -1,0 +1,26 @@
+# Binaries
+bin/
+cortex
+*.exe
+
+# Database and config (local)
+.cortex/
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
