@@ -156,8 +156,8 @@ func (e *Engine) Recall(ctx context.Context, query string, opts types.RecallOpti
 		return nil, fmt.Errorf("failed to embed query: %w", err)
 	}
 
-	// Perform vector search
-	vecResults, err := e.db.VectorSearch(queryEmb, opts.Limit*2, opts.TrustLevels)
+	// Perform vector search (trust filtering done after)
+	vecResults, err := e.db.VectorSearch(queryEmb, opts.Limit*3)
 	if err != nil {
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}
@@ -167,6 +167,12 @@ func (e *Engine) Recall(ctx context.Context, query string, opts types.RecallOpti
 	ftsSet := make(map[string]bool)
 	for _, id := range ftsIDs {
 		ftsSet[id] = true
+	}
+
+	// Build trust level set for filtering
+	trustSet := make(map[types.TrustLevel]bool)
+	for _, t := range opts.TrustLevels {
+		trustSet[t] = true
 	}
 
 	// Combine results with hybrid scoring
@@ -181,6 +187,11 @@ func (e *Engine) Recall(ctx context.Context, query string, opts types.RecallOpti
 
 		memory, err := e.db.GetMemory(vr.MemoryID)
 		if err != nil || memory == nil {
+			continue
+		}
+
+		// Filter by trust level
+		if !trustSet[memory.Trust] {
 			continue
 		}
 

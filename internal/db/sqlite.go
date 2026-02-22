@@ -361,10 +361,11 @@ func (db *DB) SaveEmbedding(memoryID string, embedding []float32, model string) 
 	}
 
 	// Save to vec_memories for vector search
+	// sqlite-vec virtual tables don't support ON CONFLICT, so delete first
+	db.conn.Exec(`DELETE FROM vec_memories WHERE memory_id = ?`, memoryID)
 	_, err = db.conn.Exec(`
 		INSERT INTO vec_memories (memory_id, embedding)
 		VALUES (?, ?)
-		ON CONFLICT(memory_id) DO UPDATE SET embedding = excluded.embedding
 	`, memoryID, serializeVector(embedding))
 
 	return err
@@ -384,39 +385,18 @@ func (db *DB) GetEmbedding(memoryID string) ([]float32, error) {
 }
 
 // VectorSearch performs semantic search using sqlite-vec
-func (db *DB) VectorSearch(queryEmb []float32, limit int, trustLevels []types.TrustLevel) ([]struct {
+func (db *DB) VectorSearch(queryEmb []float32, limit int) ([]struct {
 	MemoryID string
 	Distance float64
 }, error) {
-	var trustFilter string
-	var args []interface{}
-	args = append(args, serializeVector(queryEmb), limit)
+	// sqlite-vec requires k=? constraint for KNN queries
+	query := `
+		SELECT memory_id, distance
+		FROM vec_memories
+		WHERE embedding MATCH ? AND k = ?
+	`
 
-	if len(trustLevels) > 0 {
-		placeholders := make([]string, len(trustLevels))
-		for i, t := range trustLevels {
-			placeholders[i] = "?"
-			args = append(args, t)
-		}
-		trustFilter = fmt.Sprintf(" AND m.trust IN (%s)", strings.Join(placeholders, ","))
-	}
-
-	query := fmt.Sprintf(`
-		SELECT v.memory_id, v.distance
-		FROM vec_memories v
-		JOIN memories m ON v.memory_id = m.id
-		WHERE v.embedding MATCH ?
-		%s
-		ORDER BY v.distance
-		LIMIT ?
-	`, trustFilter)
-
-	// Reorder args: query embedding, limit comes before trust filters
-	finalArgs := []interface{}{args[0]}
-	finalArgs = append(finalArgs, args[2:]...)
-	finalArgs = append(finalArgs, args[1])
-
-	rows, err := db.conn.Query(query, finalArgs...)
+	rows, err := db.conn.Query(query, serializeVector(queryEmb), limit)
 	if err != nil {
 		return nil, err
 	}
